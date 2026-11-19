@@ -1,0 +1,57 @@
+name: Deploy notices and music playlist
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'music/**'
+      - '.github/workflows/deploy-notices.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: parata-notices-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v5
+      - name: Build site and music list
+        shell: python
+        run: |
+          import json
+          import shutil
+          from pathlib import Path
+
+          target = Path('_site')
+          target.mkdir(exist_ok=True)
+          shutil.copy2('index.html', target / 'index.html')
+          folder = target / 'music'
+          folder.mkdir(exist_ok=True)
+          tracks = []
+          source = Path('music')
+          if source.exists():
+              for item in sorted(source.iterdir(), key=lambda p: p.name.casefold()):
+                  if item.is_file() and not item.is_symlink() and item.suffix.lower() in {'.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.opus'}:
+                      shutil.copy2(item, folder / item.name)
+                      tracks.append({'type': 'file', 'name': item.name, 'path': 'music/' + item.name})
+          (folder / 'playlist.json').write_text(json.dumps(tracks, ensure_ascii=False), encoding='utf-8')
+          (target / '.nojekyll').touch()
+          print(f'Published playlist: {len(tracks)} track(s)')
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: '_site'
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
